@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone, timedelta
 import logging
 from logging.handlers import RotatingFileHandler
+from urllib.error import HTTPError
 import teslajson
 from nordpool import elspot
 
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 log_folder = os.path.dirname(os.path.abspath(__file__))
 log_file = os.path.join(log_folder, 'teslapower.log')
 logger.setLevel(logging.INFO)
-file_handler = RotatingFileHandler(log_file, maxBytes=10240, backupCount=2)
+file_handler = RotatingFileHandler(log_file, maxBytes=102400, backupCount=2)
 formatter = logging.Formatter(
     '%(asctime)s %(levelname)s: %(message)s', '%Y-%m-%d %H:%M:%S')
 file_handler.setFormatter(formatter)
@@ -55,8 +56,8 @@ prices_today = prices_spot.hourly(end_date=today, areas=areas)[
 prices_tomorrow = prices_spot.hourly(end_date=tomorrow, areas=areas)[
     'areas'][areas[0]]['values']
 
-logger.debug('prices_today: %s', prices_today)
-logger.debug('prices_tomorrow: %s', prices_tomorrow)
+logger.debug(f'prices_today: {prices_today}')
+logger.debug(f'prices_tomorrow: {prices_tomorrow}')
 
 # Thoughts
 # - ideally, we want tomorrow's prices because it will have both the price of tonight (midnight) and tomorrow night (11pm)
@@ -83,10 +84,21 @@ else:
 
 
 # get the car's current charge limit to determine whether it is in Trip Mode™
-if tesla_token:
-    c = teslajson.Connection(access_token=tesla_token)
-else:
-    c = teslajson.Connection(email=tesla_user, password=tesla_password)
+try:
+    if tesla_token:
+        c = teslajson.Connection(access_token=tesla_token)
+    else:
+        c = teslajson.Connection(email=tesla_user, password=tesla_password)
+except HTTPError as err:
+    logger.critical(f'Could not connect to Tesla API! {err.code} {err.msg}')
+    if tesla_token:
+        logger.info(
+            f'Tried using a token - did it expire? Token length: {len(tesla_token)}')
+    else:
+        logger.info(
+            f'Tried using username "{tesla_user}" and password with length {len(tesla_password)} - double-check the credentials are correct')
+    raise
+
 v = c.vehicles[0]
 current_charge_limit = v.data_request('charge_state')['charge_limit_soc']
 logger.info('The Tesla\'s current charge limit is set to: ' +
