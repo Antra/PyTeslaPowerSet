@@ -1,8 +1,17 @@
 from dotenv import load_dotenv
 import os
 from datetime import datetime, timezone, timedelta
+import logging
 import teslajson
 from nordpool import elspot
+
+logging.basicConfig(filename='teslapower.log',
+                    filemode='a',
+                    #format='%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]',
+                    format='%(asctime)s %(levelname)s: %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    level=logging.INFO)
+logging.info('*** TeslaPowerSetting starting ***')
 
 # First set some basic config
 load_dotenv()
@@ -32,6 +41,8 @@ tomorrow = now.date() + timedelta(days=1)
 yesterday = now.date() - timedelta(days=1)
 
 # Then get the power price in desired currency - both for today and tomorrow
+price_ext = base_currency + '/MWh'
+logging.info('Grabbing the updated prices...')
 prices_spot = elspot.Prices(currency=base_currency)
 prices_today = prices_spot.hourly(end_date=today, areas=areas)[
     'areas'][areas[0]]['values']
@@ -55,9 +66,12 @@ prices_tomorrow = prices_spot.hourly(end_date=tomorrow, areas=areas)[
 if prices_tomorrow[0]['value'] == float('inf'):
     # tomorrow's prices are not available yet, use the latest price of today instead
     price_tonight = prices_today[-1]['value']
+    logging.info(
+        'Tomorow\'s prices are not available yet, so using today\'s list instead.')
 else:
     # tomorrow's prices are available yet, so use the earliest price
     price_tonight = prices_tomorrow[0]['value']
+    logging.info('Tomorow\'s prices are available and will be used.')
 
 
 # get the car's current charge limit to determine whether it is in Trip Mode™
@@ -67,21 +81,26 @@ else:
     c = teslajson.Connection(email=tesla_user, password=tesla_password)
 v = c.vehicles[0]
 current_charge_limit = v.data_request('charge_state')['charge_limit_soc']
+logging.info('The Tesla\'s current charge limit is set to: ' +
+             str(current_charge_limit) + " %")
 
 if price_tonight < cheap_threshold and current_charge_limit <= 90:
-    print("Wow, that's cheap!", price_tonight)
-    print("We will Max Charge because we're not in trip mode!")
     command = {"percent": max_percent}
-    print("Sending command with payload:", command)
+    logging.info('Wow, cheap price tonight! ' +
+                 str(price_tonight) + " " + str(price_ext))
+    logging.info(
+        'We are not in Trip Mode, so adjusting the charge limit. Sending command with payload: ' + str(command))
     v.command('set_charge_limit', data=command)
 elif current_charge_limit <= 90:
-    print("Okay, not that cheap:", price_tonight)
-    print("We will Min Charge because we're not in trip mode!")
     command = {"percent": min_percent}
+    logging.info('Okay, not that cheap tonight: ' +
+                 str(price_tonight) + " " + str(price_ext))
+    logging.info(
+        'We are not in Trip Mode, so adjusting the charge limit. Sending command with payload: ' + str(command))
     v.command('set_charge_limit', data=command)
-    print("Sending command with payload:", command)
 else:
-    print("Hands off! The car is in trip mode!")
+    logging.info(
+        'The car is in Trip Mode, so not adjusting anything. The price tonight is: ' + str(price_tonight))
 
 # TODO: Do I need these?
 if not any(d['value'] == float('inf') for d in prices_today):
@@ -115,3 +134,5 @@ elif current_latitude == work2_lat and current_longitude == work2_long:
     print("Car is at location: Work2.")
 else:
     print("I don't know where the car is.")
+
+logging.info('*** TeslaPowerSetting ended gracefully ***')
