@@ -25,7 +25,7 @@ TESLA_USER=your_email
 TESLA_PASS=your_password
 TESLA_TOKEN=your_access_token
 ```
-If you already have an access token that can be used to avoid storing the credentials locally
+If you already have an access token that can be used to avoid storing the credentials locally (remember the access tokens expire after 45 days)
 
 There are also a couple of behaviour toggles early in the script, set them according to your need:  
 - `base_currency` - the currency you want to use
