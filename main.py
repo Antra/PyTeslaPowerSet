@@ -90,13 +90,13 @@ try:
     else:
         c = teslajson.Connection(email=tesla_user, password=tesla_password)
 except HTTPError as err:
-    logger.critical(f'Could not connect to Tesla API! {err.code} {err.msg}')
-    if tesla_token:
+    if tesla_token and err.code == 401:
         logger.info(
             f'Tried using a token - did it expire? Token length: {len(tesla_token)}')
-    else:
+    elif err.code == 401:
         logger.info(
             f'Tried using username "{tesla_user}" and password with length {len(tesla_password)} - double-check the credentials are correct')
+    logger.error(f'Could not connect to Tesla API! {err.code} {err.msg}')
     raise
 
 v = c.vehicles[0]
