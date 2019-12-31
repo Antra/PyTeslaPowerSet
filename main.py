@@ -100,6 +100,7 @@ except HTTPError as err:
     raise
 
 v = c.vehicles[0]
+v.wake_up()
 current_charge_limit = v.data_request('charge_state')['charge_limit_soc']
 logger.info('The Tesla\'s current charge limit is set to: ' +
             str(current_charge_limit) + " %")
