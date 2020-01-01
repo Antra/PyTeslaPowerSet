@@ -6,6 +6,7 @@ from logging.handlers import RotatingFileHandler
 from urllib.error import HTTPError
 import teslajson
 from nordpool import elspot
+import time
 
 # Get the basic logging set up
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ now = datetime.now(tz=timezone.utc)
 today = now.date()
 tomorrow = now.date() + timedelta(days=1)
 yesterday = now.date() - timedelta(days=1)
+better_price_tomorrow = False
 
 # Then get the power price in desired currency - both for today and tomorrow
 price_ext = base_currency + '/MWh'
@@ -71,6 +73,7 @@ logger.debug(f'prices_tomorrow: {prices_tomorrow}')
 # 1) If the car is set >90% charge limit -> do nothing, we're in Trip Mode™
 # 2) If the car is set to <= 90% charge limit -> decide whether to charge much (max_percent) or little (min_percent)
 # 2a) If the price is below threshold tonight -> set charge to max_percent
+# 2a*) unless it's even lower tomorrow?
 
 if prices_tomorrow[0]['value'] == float('inf'):
     # tomorrow's prices are not available yet, use the latest price of today instead
@@ -81,7 +84,10 @@ else:
     # tomorrow's prices are available yet, so use the earliest price
     price_tonight = prices_tomorrow[0]['value']
     logger.info('Tomorow\'s prices are available and will be used.')
-
+    if prices_tomorrow[-1]['value'] < prices_tomorrow[-1]['value']:
+        # If the price for tomorrow night is better, then let's utilise that instead!
+        better_price_tomorrow = True
+        logger.info('The price is actually even better tomorrow night.')
 
 # get the car's current charge limit to determine whether it is in Trip Mode™
 try:
@@ -96,16 +102,29 @@ except HTTPError as err:
     elif err.code == 401:
         logger.info(
             f'Tried using username "{tesla_user}" and password with length {len(tesla_password)} - double-check the credentials are correct')
+    elif err.code == 408:
+        logger.info(f'HTTP Error Code {err.code} - is the car awake?')
     logger.error(f'Could not connect to Tesla API! {err.code} {err.msg}')
     raise
 
 v = c.vehicles[0]
 v.wake_up()
+try:
+    current_charge_limit = v.data_request('charge_state')['charge_limit_soc']
+except HTTPError as err:
+    if err.code == 408:
+        logger.info(
+            f'HTTP Error Code {err.code}. Waiting 10 secs before trying again')
+        time.sleep(10)
+        current_charge_limit = v.data_request(
+            'charge_state')['charge_limit_soc']
+
 current_charge_limit = v.data_request('charge_state')['charge_limit_soc']
 logger.info('The Tesla\'s current charge limit is set to: ' +
             str(current_charge_limit) + " %")
 
-if price_tonight < cheap_threshold and current_charge_limit <= 90:
+if price_tonight < cheap_threshold and current_charge_limit <= 90 and better_price_tomorrow == False:
+    # If power is cheap, we're not in trip mode and the price is not even better tomorrow
     command = {"percent": max_percent}
     logger.info('Wow, cheap price tonight! ' +
                 str(price_tonight) + " " + str(price_ext))
@@ -113,6 +132,7 @@ if price_tonight < cheap_threshold and current_charge_limit <= 90:
         'We are not in Trip Mode, so adjusting the charge limit. Sending command with payload: ' + str(command))
     v.command('set_charge_limit', data=command)
 elif current_charge_limit <= 90:
+    # Otherise, just make sure we're not in trip mode
     command = {"percent": min_percent}
     logger.info('Okay, not that cheap tonight: ' +
                 str(price_tonight) + " " + str(price_ext))
