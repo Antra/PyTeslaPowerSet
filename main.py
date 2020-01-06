@@ -36,7 +36,7 @@ work2_long = os.getenv("WORK2_LONG")
 base_currency = 'DKK'
 areas = ['DK2']  # currently only supports 1 area
 # Nordpool prices are per currency/MWh where household expenses are normally currency/kWh - so set threshold as 1000x
-cheap_threshold = 280
+cheap_threshold = os.getenv("CHEAP_THRESHOLD")
 # Thresholds for desired minimum/maximum when in normal usage (not in Trip Mode)
 min_percent = 60
 max_percent = 90
@@ -115,6 +115,7 @@ except HTTPError as err:
     if err.code == 408:
         logger.info(
             f'HTTP Error Code {err.code}. Waiting 10 secs before trying again')
+        # TODO: Can I find out when the car is awake rather than a flat sleep(10)?
         time.sleep(10)
         current_charge_limit = v.data_request(
             'charge_state')['charge_limit_soc']
