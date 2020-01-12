@@ -114,9 +114,9 @@ try:
 except HTTPError as err:
     if err.code == 408:
         logger.info(
-            f'HTTP Error Code {err.code}. Waiting 10 secs before trying again')
-        # TODO: Can I find out when the car is awake rather than a flat sleep(10)?
-        time.sleep(10)
+            f'HTTP Error Code {err.code}. Waiting 20 secs before trying again')
+        # TODO: Can I find out when the car is awake rather than a flat sleep(n)?
+        time.sleep(20)
         current_charge_limit = v.data_request(
             'charge_state')['charge_limit_soc']
 
