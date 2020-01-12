@@ -108,7 +108,30 @@ except HTTPError as err:
     raise
 
 v = c.vehicles[0]
-v.wake_up()
+current_state = v['state']
+
+# if the car is asleep then we wake it first
+if current_state == 'asleep':
+    timer = 0
+    logger.info('The car is asleep, sending \'Wake\' command')
+    v.wake_up()
+    while current_state == 'asleep':
+        logger.info(
+            f'Waiting 5 more seconds before checking whether the car is awake... - timer at: {timer} seconds')
+        time.sleep(5)
+        timer += 5
+        # if we just check c.vehicles[0]['state'], we get the old response, so must re-query via the connection
+        #current_state = c.vehicles[0]['state']
+        current_state = c.get('vehicles/'+str(v['id']))['response']['state']
+        print(current_state)
+        if timer > 60:
+            print('it is taking more than 60 secs, so giving up waiting and proceeding!')
+            break
+        if current_state == 'online':
+            # car is now online, so let's break and continue
+            print(f'car is now online after {timer} seconds -- proceeding')
+            break
+
 try:
     current_charge_limit = v.data_request('charge_state')['charge_limit_soc']
 except HTTPError as err:
