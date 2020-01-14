@@ -135,10 +135,10 @@ if current_state == 'asleep':
 try:
     current_charge_limit = v.data_request('charge_state')['charge_limit_soc']
 except HTTPError as err:
+    # shouldn't be needed any more with the new waking handler, but keeping it around so I can check the logs
     if err.code == 408:
         logger.info(
             f'HTTP Error Code {err.code}. Waiting 20 secs before trying again')
-        # TODO: Can I find out when the car is awake rather than a flat sleep(n)?
         time.sleep(20)
         current_charge_limit = v.data_request(
             'charge_state')['charge_limit_soc']
