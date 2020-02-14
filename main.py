@@ -79,15 +79,18 @@ if prices_tomorrow[0]['value'] == float('inf'):
     # tomorrow's prices are not available yet, use the latest price of today instead
     price_tonight = prices_today[-1]['value']
     logger.info(
-        'Tomorow\'s prices are not available yet, so using today\'s list instead.')
+        f'Tomorow\'s prices are not available yet, so using today\'s list instead ({price_tonight} {price_ext}).')
 else:
     # tomorrow's prices are available yet, so use the earliest price
     price_tonight = prices_tomorrow[0]['value']
-    logger.info('Tomorow\'s prices are available and will be used.')
-    if prices_tomorrow[-1]['value'] < price_tonight:
+    price_tomorrow = prices_tomorrow[-1]['value']
+    logger.info(
+        f'Tomorow\'s prices ({price_tomorrow} {price_ext}) are available and will be used to compare.')
+    if price_tomorrow < price_tonight:
         # If the price for tomorrow night is better, then let's utilise that instead!
         better_price_tomorrow = True
-        logger.info('The price is actually even better tomorrow night.')
+        logger.info(
+            f'The price is actually even better tomorrow night ({price_tomorrow} {price_ext}) compared to today ({price_tonight} {price_ext}).')
 
 # get the car's current charge limit to determine whether it is in Trip Mode™
 try:
