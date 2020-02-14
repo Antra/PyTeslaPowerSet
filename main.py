@@ -38,8 +38,12 @@ areas = ['DK2']  # currently only supports 1 area
 # Nordpool prices are per currency/MWh where household expenses are normally currency/kWh - so set threshold as 1000x
 cheap_threshold = float(os.getenv("CHEAP_THRESHOLD", "0"))
 # Thresholds for desired minimum/maximum when in normal usage (not in Trip Mode)
-min_percent = 60
-max_percent = 90
+min_percent = os.getenv("MIN_PERCENT")
+if not min_percent:
+    min_percent = 60
+max_percent = os.getenv("MAX_PERCENT")
+if not max_percent:
+    max_percent = 90
 
 # Nordpool module returns times as UTC, generate a 'now' to compare with
 # If this runs too early in the day, the prices may not be set for tomorrow yet (will be 'inf' as float) -- seems the price is announced around 1pm CET

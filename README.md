@@ -24,6 +24,8 @@ Add a .env file in the root with:
 TESLA_USER=your_email
 TESLA_PASS=your_password
 TESLA_TOKEN=your_access_token
+MIN_PERCENT=desired_minimum_charge_limit (e.g. 50%)
+MAX_PERCENT=desired_maximum_charge_limit (e.g. 90%)
 ```
 If you already have an access token that can be used to avoid storing the credentials locally (remember the access tokens expire after 45 days)
 
