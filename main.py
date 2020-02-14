@@ -84,7 +84,7 @@ else:
     # tomorrow's prices are available yet, so use the earliest price
     price_tonight = prices_tomorrow[0]['value']
     logger.info('Tomorow\'s prices are available and will be used.')
-    if prices_tomorrow[-1]['value'] < prices_tomorrow[-1]['value']:
+    if prices_tomorrow[-1]['value'] < price_tonight:
         # If the price for tomorrow night is better, then let's utilise that instead!
         better_price_tomorrow = True
         logger.info('The price is actually even better tomorrow night.')
