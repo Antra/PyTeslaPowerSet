@@ -4,7 +4,9 @@ from datetime import datetime, timezone, timedelta
 import logging
 from logging.handlers import RotatingFileHandler
 from urllib.error import HTTPError
-import teslajson
+# import teslajson
+import asyncio
+from tesla_api import TeslaApiClient
 from nordpool import elspot
 import time
 
@@ -96,119 +98,41 @@ else:
         logger.info(
             f'The price is actually even better tomorrow night ({price_tomorrow} {price_ext}) compared to today ({price_tonight} {price_ext}).')
 
-# get the car's current charge limit to determine whether it is in Trip Mode™
-try:
-    if tesla_token:
-        c = teslajson.Connection(access_token=tesla_token)
+
+def get_charge_target():
+    '''Function to determine desired charge target - doesnt look at Trip Mode'''
+    if price_tonight < cheap_threshold and better_price_tomorrow == False:
+        # If power is cheap, we're not in trip mode and the price is not even better tomorrow
+        logger.info('Wow, cheap price tonight! ' +
+                    str(price_tonight) + " " + str(price_ext))
+        return max_percent
     else:
-        c = teslajson.Connection(email=tesla_user, password=tesla_password)
-except HTTPError as err:
-    if tesla_token and err.code == 401:
+        # Otherwise return the min percentage
+        return min_percent
+
+
+# This new approach is nice -- but it doens't actually work when the car is asleep.
+async def main():
+    '''Call the Tesla API, get the car, get the charge limit, and set the desired charge taget if not in Trip Mode'''
+    charge_target = int(get_charge_target())
+    client = TeslaApiClient(email=tesla_user,
+                            password=tesla_password, token=tesla_token)
+    vehicles = await client.list_vehicles()
+
+    # I only have Tesla so far, so being lazy. :)
+    car = vehicles[0]
+    current_charge_limit = await car.charge.get_state()
+    current_charge_limit = current_charge_limit['charge_limit_soc']
+
+    if current_charge_limit <= 90:
         logger.info(
-            f'Tried using a token - did it expire? Token length: {len(tesla_token)}')
-    elif err.code == 401:
-        logger.info(
-            f'Tried using username "{tesla_user}" and password with length {len(tesla_password)} - double-check the credentials are correct')
-    elif err.code == 408:
-        logger.info(f'HTTP Error Code {err.code} - is the car awake?')
-    logger.error(f'Could not connect to Tesla API! {err.code} {err.msg}')
-    raise
+            f'The current charge limit is {current_charge_limit}, so we are not in Trip mode - setting it to {charge_target} % instead.')
+        await car.charge.set_charge_limit(charge_target)
 
-v = c.vehicles[0]
-current_state = v['state']
+    await client.close()
 
-# if the car is asleep then we wake it first
-if current_state == 'asleep':
-    timer = 0
-    logger.info('The car is asleep, sending \'Wake\' command')
-    v.wake_up()
-    while current_state == 'asleep':
-        logger.info(
-            f'Waiting 5 more seconds before checking whether the car is awake... - timer at: {timer} seconds')
-        time.sleep(5)
-        timer += 5
-        # if we just check c.vehicles[0]['state'], we get the old response, so must re-query via the connection
-        #current_state = c.vehicles[0]['state']
-        current_state = c.get('vehicles/'+str(v['id']))['response']['state']
-        print(current_state)
-        if timer > 60:
-            print('it is taking more than 60 secs, so giving up waiting and proceeding!')
-            break
-        if current_state == 'online':
-            # car is now online, so let's break and continue
-            print(f'car is now online after {timer} seconds -- proceeding')
-            break
 
-try:
-    current_charge_limit = v.data_request('charge_state')['charge_limit_soc']
-except HTTPError as err:
-    # shouldn't be needed any more with the new waking handler, but keeping it around so I can check the logs
-    if err.code == 408:
-        logger.info(
-            f'HTTP Error Code {err.code}. Waiting 20 secs before trying again')
-        time.sleep(20)
-        current_charge_limit = v.data_request(
-            'charge_state')['charge_limit_soc']
-
-current_charge_limit = v.data_request('charge_state')['charge_limit_soc']
-logger.info('The Tesla\'s current charge limit is set to: ' +
-            str(current_charge_limit) + " %")
-
-if price_tonight < cheap_threshold and current_charge_limit <= 90 and better_price_tomorrow == False:
-    # If power is cheap, we're not in trip mode and the price is not even better tomorrow
-    command = {"percent": max_percent}
-    logger.info('Wow, cheap price tonight! ' +
-                str(price_tonight) + " " + str(price_ext))
-    logger.info(
-        'We are not in Trip Mode, so adjusting the charge limit. Sending command with payload: ' + str(command))
-    v.command('set_charge_limit', data=command)
-elif current_charge_limit <= 90:
-    # Otherise, just make sure we're not in trip mode
-    command = {"percent": min_percent}
-    logger.info('Okay, not that cheap tonight: ' +
-                str(price_tonight) + " " + str(price_ext))
-    logger.info(
-        'We are not in Trip Mode, so adjusting the charge limit. Sending command with payload: ' + str(command))
-    v.command('set_charge_limit', data=command)
-else:
-    logger.info(
-        'The car is in Trip Mode, so not adjusting anything. The price tonight is: ' + str(price_tonight))
-
-# TODO: Do I need these?
-if not any(d['value'] == float('inf') for d in prices_today):
-    # Todays prices has real values
-    pass
-
-if not any(d['value'] == float('inf') for d in prices_tomorrow):
-    # Tomorrows prices has real values
-    pass
-
-# v.wake_up()
-# v.data_request('charge_state')
-# v.command('charge_start')
-
-# TODO: Do I want to do something with location?
-# If so need to figure out how to handling rounding of the GPS coordinates
-
-w = v.data_request('drive_state')
-# w = {'gps_as_of': 1577524888, 'heading': 4, 'latitude': 55.721638, 'longitude': 12.360973, 'native_latitude': 55.721638, 'native_location_supported': 1, 'native_longitude': 12.360973,
-#     'native_type': 'wgs', 'power': 0, 'shift_state': None, 'speed': None, 'timestamp': 1577524889351}
-
-# Seems 3 decimals is imprecise enough that it works for both work locations -- they're far enough apart to not confuse them
-current_latitude = str(round(w["latitude"], 3))
-current_longitude = str(round(w["longitude"], 3))
-
-if current_latitude == home_lat and current_longitude == home_long:
-    #print("Car is at home.")
-    pass
-elif current_latitude == work1_lat and current_longitude == work1_long:
-    #print("Car is at location: Work1.")
-    pass
-elif current_latitude == work2_lat and current_longitude == work2_long:
-    #print("Car is at location: Work2.")
-    pass
-else:
-    #print("I don't know where the car is.")
-    pass
+if __name__ == '__main__':
+    asyncio.run(main())
 
 logger.info('*** TeslaPowerSetting ended gracefully ***')
