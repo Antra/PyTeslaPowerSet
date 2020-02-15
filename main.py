@@ -85,18 +85,22 @@ if prices_tomorrow[0]['value'] == float('inf'):
     # tomorrow's prices are not available yet, use the latest price of today instead
     price_tonight = prices_today[-1]['value']
     logger.info(
-        f'Tomorow\'s prices are not available yet, so using today\'s list instead ({price_tonight} {price_ext}).')
+        f'Tomorow\'s prices are not available yet, so only looking at today\'s price ({price_tonight} {price_ext}).')
 else:
     # tomorrow's prices are available yet, so use the earliest price
     price_tonight = prices_tomorrow[0]['value']
     price_tomorrow = prices_tomorrow[-1]['value']
     logger.info(
-        f'Tomorow\'s prices ({price_tomorrow} {price_ext}) are available and will be used to compare.')
+        f'Tomorow\'s prices ({price_tomorrow} {price_ext}) are available and will be used to compare against today\'s prices ({price_tonight} {price_ext}).')
     if price_tomorrow < price_tonight:
         # If the price for tomorrow night is better, then let's utilise that instead!
         better_price_tomorrow = True
         logger.info(
-            f'The price is actually even better tomorrow night ({price_tomorrow} {price_ext}) compared to today ({price_tonight} {price_ext}).')
+            f'The best price is tomorrow night: {price_tomorrow} {price_ext}.')
+    else:
+        better_price_tomorrow = False
+        logger.info(
+            f'The best price is tonight: {price_tonight} {price_ext}.')
 
 
 def get_charge_target():
@@ -111,7 +115,6 @@ def get_charge_target():
         return min_percent
 
 
-# This new approach is nice -- but it doens't actually work when the car is asleep.
 async def main():
     '''Call the Tesla API, get the car, get the charge limit, and set the desired charge taget if not in Trip Mode'''
     charge_target = int(get_charge_target())
@@ -119,15 +122,22 @@ async def main():
                             password=tesla_password, token=tesla_token)
     vehicles = await client.list_vehicles()
 
-    # I only have Tesla so far, so being lazy. :)
+    # TODO: I only have Tesla so far, so being lazy. :) -- fix if/when relevant
     car = vehicles[0]
-    current_charge_limit = await car.charge.get_state()
-    current_charge_limit = current_charge_limit['charge_limit_soc']
+
+    if not car.state.lower() == 'online':
+        logger.info('The car is not currently awake, wake-up signal sent.')
+        await car.wake_up()
+    current_charge_limit = (await car.charge.get_state())['charge_limit_soc']
 
     if current_charge_limit <= 90:
+        # If charge limit is 90 or less we're not in Trip Mode™
         logger.info(
-            f'The current charge limit is {current_charge_limit}, so we are not in Trip mode - setting it to {charge_target} % instead.')
+            f'The current charge limit is {current_charge_limit} %, updating it to {charge_target} % (no Trip Mode detected).')
         await car.charge.set_charge_limit(charge_target)
+    else:
+        logger.info(
+            f'Trip Mode detected, so leaving the car with {current_charge_limit} % charge limit.')
 
     await client.close()
 
