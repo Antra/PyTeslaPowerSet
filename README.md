@@ -5,7 +5,7 @@ Check current power prices and set a Tesla charge state accordingly:
 - If the power price tonight is high, then set the Tesla to charge minimum
 
 ## Thanks!
-Relies on Greg Glockner's [Tesla Json](https://github.com/gglockner/teslajson) and Kimmo Huoman's [Nordpool](https://github.com/kipe/nordpool)  
+Relies on Michiel Lowijs's [Tesla-Api](https://github.com/mlowijs/tesla_api) and Kimmo Huoman's [Nordpool](https://github.com/kipe/nordpool)  
 
 Without their work, this wouldn't have been possible -- thanks guys!
 
@@ -26,16 +26,30 @@ TESLA_PASS=your_password
 TESLA_TOKEN=your_access_token
 MIN_PERCENT=desired_minimum_charge_limit (e.g. 50%)
 MAX_PERCENT=desired_maximum_charge_limit (e.g. 90%)
+BASE_CURRENCY=desired_currency_to_use
 ```
 If you already have an access token that can be used to avoid storing the credentials locally (remember the access tokens expire after 45 days)
 
 There are also a couple of behaviour toggles early in the script, set them according to your need:  
-- `base_currency` - the currency you want to use
 - `areas` - the Nordpool area to check for, NB *currently only supports 1 area*
 - `cheap_threshold` - the decision threshold for whether to charge min or max (e.g. 280), NB *multiply by 1000 (conversion of cost/MWh to cost/kWh)*
-- `min_percent` - the charge percent to use when price is above cheap_threshold (e.g. 60)
-- `max_percent` - the charge percent to use when price is below cheap_threshold (e.g. 90)
+
 
 ## Scheduling
 Add it to crontab for scheduling, for example:  
 `30 22   * * *   user      python3.7 ~/PyTeslaPowerSet/main.py > /dev/null 2>&1`
+
+# Basic logic
+My original thoughts for the logic
+- ideally, we want tomorrow's prices because it will have both the price of tonight (midnight) and tomorrow night (11pm)
+- as a backup, we can use today's prices, because it will have the price tonight (11pm) and the useless one: yesterday night (midnight between yesterday and today)
+  - Conclusion: So there are two interesting prices and one back up price:
+  - #1: The price tonight -- which is prices_tomorrow[0]
+  - #2: The price tomorrow night -- which is prices_tomorrow[-1]
+  - #3: The price tonight (1 hr earlier) -- which is prices_today[-1]
+
+So the logic should be as follows:
+- If the car is set >90% charge limit -> do nothing, we're in Trip Mode™
+- If the car is set to <= 90% charge limit -> decide whether to charge much (max_percent) or little (min_percent)
+   - If the price is below threshold tonight -> set charge to max_percent
+      - unless it's even lower tomorrow?

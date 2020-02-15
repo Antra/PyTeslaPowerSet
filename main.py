@@ -3,12 +3,9 @@ import os
 from datetime import datetime, timezone, timedelta
 import logging
 from logging.handlers import RotatingFileHandler
-from urllib.error import HTTPError
-# import teslajson
 import asyncio
 from tesla_api import TeslaApiClient
 from nordpool import elspot
-import time
 
 # Get the basic logging set up
 logger = logging.getLogger(__name__)
@@ -34,38 +31,65 @@ work1_lat = os.getenv("WORK1_LAT")
 work1_long = os.getenv("WORK1_LONG")
 work2_lat = os.getenv("WORK2_LAT")
 work2_long = os.getenv("WORK2_LONG")
-
-base_currency = 'DKK'
-areas = ['DK2']  # currently only supports 1 area
+base_currency = os.getenv("BASE_CURRENCY")
+min_percent = os.getenv("MIN_PERCENT")
+max_percent = os.getenv("MAX_PERCENT")
 # Nordpool prices are per currency/MWh where household expenses are normally currency/kWh - so set threshold as 1000x
 cheap_threshold = float(os.getenv("CHEAP_THRESHOLD", "0"))
-# Thresholds for desired minimum/maximum when in normal usage (not in Trip Mode)
-min_percent = os.getenv("MIN_PERCENT")
+
+
+# Handle non-defined values
 if not min_percent:
     min_percent = 60
-max_percent = os.getenv("MAX_PERCENT")
 if not max_percent:
     max_percent = 90
+if not base_currency:
+    base_currency = 'DKK'
 
-# Nordpool module returns times as UTC, generate a 'now' to compare with
-# If this runs too early in the day, the prices may not be set for tomorrow yet (will be 'inf' as float) -- seems the price is announced around 1pm CET
-now = datetime.now(tz=timezone.utc)
-today = now.date()
-tomorrow = now.date() + timedelta(days=1)
-yesterday = now.date() - timedelta(days=1)
-better_price_tomorrow = False
-
-# Then get the power price in desired currency - both for today and tomorrow
+areas = ['DK2']  # currently only supports 1 area
 price_ext = base_currency + '/MWh'
-logger.info('Grabbing the updated prices...')
-prices_spot = elspot.Prices(currency=base_currency)
-prices_today = prices_spot.hourly(end_date=today, areas=areas)[
-    'areas'][areas[0]]['values']
-prices_tomorrow = prices_spot.hourly(end_date=tomorrow, areas=areas)[
-    'areas'][areas[0]]['values']
 
-logger.debug(f'prices_today: {prices_today}')
-logger.debug(f'prices_tomorrow: {prices_tomorrow}')
+
+def get_prices():
+    '''Function to get the prices from the Nordpool module'''
+    # Nordpool module returns times as UTC, generate a 'now' to compare with
+    # If this runs too early in the day, the prices may not be set for tomorrow yet (will be 'inf' as float) -- seems the price is announced around 1pm CET
+    now = datetime.now(tz=timezone.utc)
+    today = now.date()
+    tomorrow = now.date() + timedelta(days=1)
+    # Then get the power price in desired currency - both for today and tomorrow
+    logger.info('Grabbing the updated prices...')
+    prices_spot = elspot.Prices(currency=base_currency)
+    prices_today = prices_spot.hourly(end_date=today, areas=areas)[
+        'areas'][areas[0]]['values']
+    prices_tomorrow = prices_spot.hourly(end_date=tomorrow, areas=areas)[
+        'areas'][areas[0]]['values']
+    logger.debug(f'prices_today: {prices_today}')
+    logger.debug(f'prices_tomorrow: {prices_tomorrow}')
+    return prices_today, prices_tomorrow
+
+
+def determine_better_price(tonight, tomorrow=None):
+    '''Function to determine the best charge time and charge level base on the available prices.'''
+    better_price_tomorrow = False
+    if tomorrow[0]['value'] == float('inf') or tomorrow is None:
+        price_tonight = tonight[-1]['value']
+        logger.info(
+            f'Only today\'s price is available ({price_tonight} {price_ext}).')
+    else:
+        price_tonight = tomorrow[0]['value']
+        price_tomorrow = tomorrow[-1]['value']
+        logger.info(
+            f'Tomorow\'s prices ({price_tomorrow} {price_ext}) are available and will be used to compare against today\'s prices ({price_tonight} {price_ext}).')
+        if price_tomorrow < price_tonight:
+            # If the price for tomorrow night is better, then let's utilise that instead!
+            better_price_tomorrow = True
+            logger.info(
+                f'The best price is tomorrow night: {price_tomorrow} {price_ext}.')
+        else:
+            logger.info(
+                f'The best price is tonight: {price_tonight} {price_ext}.')
+    return better_price_tomorrow, price_tonight
 
 # Thoughts
 # - ideally, we want tomorrow's prices because it will have both the price of tonight (midnight) and tomorrow night (11pm)
@@ -81,30 +105,12 @@ logger.debug(f'prices_tomorrow: {prices_tomorrow}')
 # 2a) If the price is below threshold tonight -> set charge to max_percent
 # 2a*) unless it's even lower tomorrow?
 
-if prices_tomorrow[0]['value'] == float('inf'):
-    # tomorrow's prices are not available yet, use the latest price of today instead
-    price_tonight = prices_today[-1]['value']
-    logger.info(
-        f'Tomorow\'s prices are not available yet, so only looking at today\'s price ({price_tonight} {price_ext}).')
-else:
-    # tomorrow's prices are available yet, so use the earliest price
-    price_tonight = prices_tomorrow[0]['value']
-    price_tomorrow = prices_tomorrow[-1]['value']
-    logger.info(
-        f'Tomorow\'s prices ({price_tomorrow} {price_ext}) are available and will be used to compare against today\'s prices ({price_tonight} {price_ext}).')
-    if price_tomorrow < price_tonight:
-        # If the price for tomorrow night is better, then let's utilise that instead!
-        better_price_tomorrow = True
-        logger.info(
-            f'The best price is tomorrow night: {price_tomorrow} {price_ext}.')
-    else:
-        better_price_tomorrow = False
-        logger.info(
-            f'The best price is tonight: {price_tonight} {price_ext}.')
-
 
 def get_charge_target():
     '''Function to determine desired charge target - doesnt look at Trip Mode'''
+    prices_today, prices_tomorrow = get_prices()
+    better_price_tomorrow, price_tonight = determine_better_price(
+        prices_today, prices_tomorrow)
     if price_tonight < cheap_threshold and better_price_tomorrow == False:
         # If power is cheap, we're not in trip mode and the price is not even better tomorrow
         logger.info('Wow, cheap price tonight! ' +
@@ -128,10 +134,10 @@ async def main():
     if not car.state.lower() == 'online':
         logger.info('The car is not currently awake, wake-up signal sent.')
         await car.wake_up()
-    current_charge_limit = (await car.charge.get_state())['charge_limit_soc']
 
+    current_charge_limit = (await car.charge.get_state())['charge_limit_soc']
+    # If charge limit is 90 or less, we're not in Trip Mode™
     if current_charge_limit <= 90:
-        # If charge limit is 90 or less we're not in Trip Mode™
         logger.info(
             f'The current charge limit is {current_charge_limit} %, updating it to {charge_target} % (no Trip Mode detected).')
         await car.charge.set_charge_limit(charge_target)
