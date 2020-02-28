@@ -135,6 +135,14 @@ async def main():
         logger.info('The car is not currently awake, wake-up signal sent.')
         await car.wake_up()
 
+    vehicles = await client.list_vehicles()
+
+    # Issues with the car taking longer than the timeout to wake up -- do I dare a while true? for now I'll just try a second time.
+    if not car.state.lower() == 'online':
+        logger.info(
+            'The car is not currently awake, wake-up signal sent again.')
+        await car.wake_up()
+
     current_charge_limit = (await car.charge.get_state())['charge_limit_soc']
     # If charge limit is 90 or less, we're not in Trip Mode™
     if current_charge_limit <= 90:
