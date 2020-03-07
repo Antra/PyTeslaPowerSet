@@ -6,6 +6,7 @@ from logging.handlers import RotatingFileHandler
 import asyncio
 from tesla_api import TeslaApiClient
 from nordpool import elspot
+import time
 
 # Get the basic logging set up
 logger = logging.getLogger(__name__)
@@ -131,23 +132,22 @@ async def main():
     # TODO: I only have Tesla so far, so being lazy. :) -- fix if/when relevant
     car = vehicles[0]
 
-    if not car.state.lower() == 'online':
-        logger.info('The car is not currently awake, wake-up signal sent.')
+    # Let's set a timeout of 10 mins, then we give up
+    timeout = time.time() + 60*10
+    while not car.state.lower() == 'online':
+        if time.time() > timeout:
+            logger.info(f'Timeout of {timeout} seconds reached, giving up...')
+            break
+        logger.info(f'The car is not currently awake  wake-up signal sent.')
         await car.wake_up()
-
-    vehicles = await client.list_vehicles()
-
-    # Issues with the car taking longer than the timeout to wake up -- do I dare a while true? for now I'll just try a second time.
-    if not car.state.lower() == 'online':
-        logger.info(
-            'The car is not currently awake, wake-up signal sent again.')
-        await car.wake_up()
+        vehicles = await client.list_vehicles()
+        car = vehicles[0]
 
     current_charge_limit = (await car.charge.get_state())['charge_limit_soc']
     # If charge limit is 90 or less, we're not in Trip Mode™
     if current_charge_limit <= 90:
         logger.info(
-            f'The current charge limit is {current_charge_limit} %, updating it to {charge_target} % (no Trip Mode detected).')
+            f'The current charge limit was {current_charge_limit} %, setting it to {charge_target} % (no Trip Mode detected).')
         await car.charge.set_charge_limit(charge_target)
     else:
         logger.info(
