@@ -140,6 +140,7 @@ async def main():
             break
         logger.info(f'The car is not currently awake  wake-up signal sent.')
         await car.wake_up()
+        time.sleep(15)
         vehicles = await client.list_vehicles()
         car = vehicles[0]
 
