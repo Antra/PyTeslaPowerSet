@@ -138,7 +138,7 @@ async def main():
         if time.time() > timeout:
             logger.info(f'Timeout of {timeout} seconds reached, giving up...')
             break
-        logger.info(f'The car is not currently awake  wake-up signal sent.')
+        logger.info(f'The car is not currently awake, wake-up signal sent.')
         await car.wake_up()
         time.sleep(15)
         vehicles = await client.list_vehicles()
