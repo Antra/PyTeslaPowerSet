@@ -82,11 +82,11 @@ def determine_better_price(tonight, tomorrow=None):
         price_tomorrow = tomorrow[-1]['value']
         logger.info(
             f'Tomorow\'s prices ({price_tomorrow} {price_ext}) are available and will be used to compare against today\'s prices ({price_tonight} {price_ext}).')
-        if price_tomorrow < price_tonight:
-            # If the price for tomorrow night is better, then let's utilise that instead!
+        if price_tomorrow * 1.05 < price_tonight:
+            # If the price for tomorrow night is better, then let's utilise that instead! (adding 5% to tomorrow's price in case they are almost even)
             better_price_tomorrow = True
             logger.info(
-                f'The best price is tomorrow night: {price_tomorrow} {price_ext}.')
+                f'The best price is tomorrow night: {price_tomorrow} (+5%: {price_tomorrow * 1.05}) {price_ext}.')
         else:
             logger.info(
                 f'The best price is tonight: {price_tonight} {price_ext}.')
