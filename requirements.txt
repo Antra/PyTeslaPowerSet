@@ -1,4 +1,4 @@
 python-dotenv>=0.10.3
 tesla-api>=2.0.1
 # -e git+https://github.com/gglockner/teslajson.git@77aeb71d26d9549529209095ea5c587d06428e55#egg=teslajson
--e git+https://github.com/kipe/nordpool.git#egg=nordpool
+git+https://github.com/kipe/nordpool.git
